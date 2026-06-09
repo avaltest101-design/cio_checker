@@ -55,6 +55,18 @@ function looseMatch(a, b) {
 function lineScore(name, address) { return [name, address].filter(Boolean).join(" "); }
 
 export function analyzeRequest(form = {}, combinedText = "", rules = DEFAULT_RULES) {
+  const parsed = parseRequestFields(combinedText, form);
+  const fields = {
+    requestFrom: form.requestFrom || parsed.requestFrom || "",
+    insuredName: form.insuredName || parsed.insuredName || "",
+    certHolderName: form.certHolderName || parsed.certHolderName || "",
+    certHolderAddress: form.certHolderAddress || parsed.certHolderAddress || "",
+    projectName: form.projectName || parsed.projectName || "",
+    specialWording: form.specialWording || parsed.specialWording || "",
+    deliveryInstructions: form.deliveryInstructions || parsed.deliveryInstructions || "",
+    dueDate: form.dueDate || parsed.dueDate || "",
+  };
+
   const text = `${combinedText} ${form.requiredCoverage || ""} ${form.requiredEndorsements || ""} ${form.specialWording || ""}`;
   const kw = rules.endorsementKeywords || DEFAULT_RULES.endorsementKeywords;
   const detected = {
@@ -77,21 +89,26 @@ export function analyzeRequest(form = {}, combinedText = "", rules = DEFAULT_RUL
   if (detected.lossPayeeMortgagee) escalations.push("Loss payee / mortgagee wording was requested. This may not belong on an ACORD 25 alone; an Evidence of Property form may be required. Escalate to confirm the correct form.");
 
   const missingInfo = [];
-  if (!form.insuredName) missingInfo.push("Named insured was not provided.");
-  if (!form.certHolderName) missingInfo.push("Certificate holder name was not provided.");
-  if (!form.certHolderAddress) missingInfo.push("Certificate holder address was not provided.");
+  if (!fields.insuredName) missingInfo.push("Named insured was not clearly captured. Confirm the exact account/policy insured before issuing.");
+  if (!fields.certHolderName) missingInfo.push("Certificate holder name was not clearly captured.");
+  if (!fields.certHolderAddress) missingInfo.push("Certificate holder address was not clearly captured.");
   if (!detected.generalLiability && !detected.autoLiability && !detected.umbrella && !detected.workersComp) missingInfo.push("No specific line of business (GL, Auto, Umbrella, WC) was clearly identified in the request.");
-  if (!form.projectName && hasAny(text, ["project", "job", "re:"])) missingInfo.push("The request references a project/job but no project name was captured. Confirm the exact project reference.");
+  if (!fields.projectName && hasAny(text, ["project", "job", "re:"])) missingInfo.push("The request references a project/job but no project name was captured. Confirm the exact project reference.");
 
   const ambiguities = [];
   if (hasAny(text, ["as required", "as needed", "per contract", "standard wording"])) ambiguities.push('Request uses open-ended language such as "as required" / "per contract". Confirm the exact wording with the requester, Account Manager, or licensed agent.');
-  if (detected.additionalInsured && !form.certHolderName && !hasAny(text, ["in favor of", "name as"])) ambiguities.push("Additional Insured was requested but the entity to be named is not clearly captured. Confirm who should be named.");
+  if (detected.additionalInsured && !fields.certHolderName && !hasAny(text, ["in favor of", "name as"])) ambiguities.push("Additional Insured was requested but the entity to be named is not clearly captured. Confirm who should be named.");
 
-  const checklist = ["Confirm the named insured matches the active policy.", "Confirm the certificate holder name and address exactly as requested.", "Confirm active policy term dates before issuing the COI."];
-  if (detected.generalLiability) checklist.push("Include General Liability line.");
-  if (detected.autoLiability) checklist.push("Include Auto Liability line.");
-  if (detected.umbrella) checklist.push("Include Umbrella / Excess line.");
-  if (detected.workersComp) checklist.push("Include Workers Compensation line.");
+  const checklist = [
+    `Confirm the named insured${fields.insuredName ? `: ${fields.insuredName}` : " matches the active policy"}.`,
+    `Confirm the certificate holder${fields.certHolderName ? `: ${fields.certHolderName}` : " name"}${fields.certHolderAddress ? `, ${fields.certHolderAddress}` : " and address"}.`,
+    "Confirm active policy term dates before issuing the COI.",
+  ];
+  if (fields.projectName) checklist.push(`Include project/job reference when appropriate: RE: ${fields.projectName}.`);
+  if (detected.generalLiability) checklist.push("Include General Liability line with policy number, term dates, and limits.");
+  if (detected.autoLiability) checklist.push("Include Auto Liability line with policy number, term dates, and limits.");
+  if (detected.umbrella) checklist.push("Include Umbrella / Excess line with policy number, term dates, and limits.");
+  if (detected.workersComp) checklist.push("Include Workers Compensation line with policy number, term dates, and limits.");
   if (detected.additionalInsured) checklist.push("Verify Additional Insured endorsement/support before adding AI wording or marking ADD'L INSD.");
   if (detected.waiverOfSubrogation) checklist.push("Verify Waiver of Subrogation endorsement/support before adding WOS wording or marking SUBR WVD.");
   if (detected.primaryNonContributory) checklist.push("Add Primary & Non-Contributory wording only if supported by policy/endorsement.");
@@ -99,22 +116,23 @@ export function analyzeRequest(form = {}, combinedText = "", rules = DEFAULT_RUL
   checklist.push("Add only approved/supported wording to Description of Operations.", "Place the holder in the CERTIFICATE HOLDER box, not only in Description.", "After creating the COI, upload the finished ACORD 25 PDF back into this checker.");
 
   const descLines = [];
-  if (form.projectName) descLines.push(`RE: ${form.projectName}.`);
-  if (detected.additionalInsured) descLines.push(`${form.certHolderName || "[Certificate Holder]"} is included as Additional Insured where required by written contract, subject to policy terms and applicable endorsement.`);
+  if (fields.projectName) descLines.push(`RE: ${fields.projectName}.`);
+  if (detected.additionalInsured) descLines.push(`${fields.certHolderName || "[Certificate Holder]"} is included as Additional Insured where required by written contract, subject to policy terms and applicable endorsement.`);
   if (detected.waiverOfSubrogation) descLines.push("Waiver of Subrogation applies where required by written contract, subject to policy terms and applicable endorsement.");
   if (detected.primaryNonContributory) descLines.push("Coverage is Primary & Non-Contributory where required by written contract, subject to policy terms and applicable endorsement.");
-  if (form.specialWording) descLines.push(form.specialWording.trim());
+  if (fields.specialWording) descLines.push(fields.specialWording.trim());
 
   const coverages = [detected.generalLiability && "General Liability", detected.autoLiability && "Auto Liability", detected.umbrella && "Umbrella / Excess", detected.workersComp && "Workers Compensation"].filter(Boolean);
   const endorsements = [detected.additionalInsured && "Additional Insured", detected.waiverOfSubrogation && "Waiver of Subrogation", detected.primaryNonContributory && "Primary & Non-Contributory", detected.completedOperations && "Completed Operations", detected.lossPayeeMortgagee && "Loss Payee / Mortgagee"].filter(Boolean);
-  const summaryParts = [`Request received from ${form.requestFrom || "an unspecified requester"} for ${form.insuredName || "the insured"}.`, coverages.length ? `Requested coverage lines: ${coverages.join(", ")}.` : "No specific coverage line was clearly identified; confirm before creating the COI."];
+  const summaryParts = [`Request received from ${fields.requestFrom || "an unspecified requester"} for ${fields.insuredName || "the insured"}.`, coverages.length ? `Requested coverage lines: ${coverages.join(", ")}.` : "No specific coverage line was clearly identified; confirm before creating the COI."];
   if (endorsements.length) summaryParts.push(`Requested endorsement-related items: ${endorsements.join(", ")}.`);
-  if (form.certHolderName) summaryParts.push(`Certificate holder: ${form.certHolderName}${form.certHolderAddress ? `, ${form.certHolderAddress}` : ""}.`);
+  if (fields.certHolderName) summaryParts.push(`Certificate holder: ${fields.certHolderName}${fields.certHolderAddress ? `, ${fields.certHolderAddress}` : ""}.`);
+  if (fields.projectName) summaryParts.push(`Project/job reference: ${fields.projectName}.`);
   if (escalations.length) summaryParts.push(`${escalations.length} item(s) require escalation before proceeding.`);
 
   return {
     detected,
-    fields: { requestFrom: form.requestFrom || "", insuredName: form.insuredName || "", certHolderName: form.certHolderName || "", certHolderAddress: form.certHolderAddress || "", projectName: form.projectName || "", specialWording: form.specialWording || "", deliveryInstructions: form.deliveryInstructions || "", dueDate: form.dueDate || "" },
+    fields,
     summary: summaryParts.join(" "),
     checklist,
     missingInfo,
@@ -178,4 +196,68 @@ export function compareCoi(analysis, coi, rules = DEFAULT_RULES) {
   add("Info", "Escalation Reminder", "Endorsement status must be verified on the policy, not assumed from the request.", "Adding AI/WOS/PNC wording without support can misrepresent the certificate.", "If endorsement status is unclear, escalate before sending.", "Rule");
   add("Info", "Compliance Reminder", rules.disclaimer || DEFAULT_RULES.disclaimer, "This tool supports QC and training; it does not make coverage decisions.", "A licensed professional owns the final decision.", "Rule");
   return { findings };
+}
+
+function parseRequestFields(combinedText = "", form = {}) {
+  const raw = (combinedText || "").replace(/\r/g, "\n");
+  const lines = raw.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const certBlock = getBlockAfterLabel(lines, [/certificate\s*holder/i, /cert\.?\s*holder/i, /^holder$/i]);
+  const holderName = certBlock[0] || getLabeledValue(raw, ["certificate holder", "cert holder", "holder"]);
+  const holderAddress = certBlock.slice(1, 4).join(" ") || getAddressNear(raw, holderName);
+  return {
+    requestFrom: getLabeledValue(raw, ["request from", "requested by", "from"]),
+    insuredName: getLabeledValue(raw, ["insured", "named insured", "customer", "account"]) || findAfterPhrase(raw, [/issue\s+(?:a\s+)?coi\s+(?:for|to)\s+([^\n.]+)/i, /certificate\s+(?:for|to)\s+([^\n.]+)/i]),
+    certHolderName: holderName,
+    certHolderAddress: holderAddress,
+    projectName: getLabeledValue(raw, ["project", "job", "re"]),
+    dueDate: getLabeledValue(raw, ["due date", "needed by", "deadline"]),
+    specialWording: getLabeledValue(raw, ["special wording", "description", "description of operations", "wording"]),
+    deliveryInstructions: getLabeledValue(raw, ["send to", "delivery", "email to"]),
+  };
+}
+function getLabeledValue(text, labels) {
+  for (const label of labels) {
+    const re = new RegExp(`${escapeRegExp(label)}\\s*[:\-]\\s*([^\n]+)`, "i");
+    const match = text.match(re);
+    if (match?.[1]) return cleanCaptured(match[1]);
+  }
+  return "";
+}
+function getBlockAfterLabel(lines, patterns) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const matched = patterns.some((p) => p.test(line));
+    if (!matched) continue;
+    const afterColon = line.includes(":") ? line.split(":").slice(1).join(":").trim() : "";
+    const block = [];
+    if (afterColon) block.push(afterColon);
+    for (const next of lines.slice(i + 1, i + 5)) {
+      if (/^(insured|project|job|coverage|required|special|description|delivery|due|please|include)\b/i.test(next)) break;
+      block.push(next);
+    }
+    return block.map(cleanCaptured).filter(Boolean);
+  }
+  return [];
+}
+function findAfterPhrase(text, patterns) {
+  for (const p of patterns) {
+    const match = text.match(p);
+    if (match?.[1]) return cleanCaptured(match[1]);
+  }
+  return "";
+}
+function getAddressNear(text, holderName) {
+  if (!holderName) return "";
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const idx = lines.findIndex((line) => looseMatch(line, holderName));
+  if (idx < 0) return "";
+  const addressLines = [];
+  for (const line of lines.slice(idx + 1, idx + 4)) {
+    if (/^(insured|project|job|coverage|required|special|description|delivery|due|please|include)\b/i.test(line)) break;
+    addressLines.push(cleanCaptured(line));
+  }
+  return addressLines.join(" ");
+}
+function cleanCaptured(value) {
+  return (value || "").replace(/^[\-–—\s]+|[\s.;]+$/g, "").replace(/\s+/g, " ").trim();
 }
