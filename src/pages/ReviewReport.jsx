@@ -11,6 +11,43 @@ export default function ReviewReport() {
   const { settings, activeReport, refreshReports, navigate } = useApp();
   const [saved, setSaved] = useState(false);
 
+  const r = activeReport;
+  const recommendation = r ? deriveRecommendation(r.status) : null;
+
+  // Critical findings first. Keep hooks before any conditional return to avoid
+  // React hook-order issues when navigating from an empty report to a loaded one.
+  const sortedFindings = useMemo(
+    () =>
+      [...(r?.findings || [])].sort(
+        (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity)
+      ),
+    [r?.findings]
+  );
+
+  const fieldChecklist = useMemo(() => {
+    const f = r?.extracted || {};
+    return [
+      ["Date issued", f.dateIssued],
+      ["Producer name", f.producerName],
+      ["Insured name", f.insuredName],
+      ["Certificate holder", f.certHolderName],
+      ["Certificate holder address", f.certHolderAddress],
+      ["Policy numbers", f.policyNumbers?.length ? f.policyNumbers.join(", ") : "Not detected"],
+      ["Effective date present", f.hasEffectiveDate ? "Yes" : "Not detected"],
+      ["Expiration date present", f.hasExpirationDate ? "Yes" : "Not detected"],
+      ["Limit values", f.dollarAmounts?.length ? f.dollarAmounts.join(", ") : "Not detected"],
+      ["NAIC values", f.naicNumbers?.length ? f.naicNumbers.join(", ") : "Not detected"],
+      ["General Liability line", f.generalLiabilityPresent ? "Detected" : "Not detected"],
+      ["Auto Liability line", f.autoLiabilityPresent ? "Detected" : "Not detected"],
+      ["Umbrella / Excess line", f.umbrellaPresent ? "Detected" : "Not detected"],
+      ["Workers Compensation line", f.workersCompPresent ? "Detected" : "Not detected"],
+      ["Additional Insured indicator", f.additionalInsuredChecked ? "Yes" : "Not detected"],
+      ["Waiver of Subrogation indicator", f.waiverChecked ? "Yes" : "Not detected"],
+      ["Authorized representative", f.hasAuthorizedRep ? "Yes" : "Needs visual review"],
+      ["Description of Operations", f.description ? "Captured" : "Not detected"],
+    ];
+  }, [r?.extracted]);
+
   if (!activeReport) {
     return (
       <div className="page">
@@ -21,38 +58,6 @@ export default function ReviewReport() {
       </div>
     );
   }
-
-  const r = activeReport;
-  const recommendation = deriveRecommendation(r.status);
-
-  // Critical findings first.
-  const sortedFindings = useMemo(
-    () =>
-      [...r.findings].sort(
-        (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity)
-      ),
-    [r.findings]
-  );
-
-  const fieldChecklist = useMemo(() => {
-    const f = r.extracted || {};
-    return [
-      ["Date issued", f.dateIssued],
-      ["Producer name", f.producerName],
-      ["Insured name", f.insuredName],
-      ["Certificate holder", f.certHolderName],
-      ["Certificate holder address", f.certHolderAddress],
-      ["Policy number present", f.hasPolicyNumber ? "Yes" : "Not detected"],
-      ["Effective date present", f.hasEffectiveDate ? "Yes" : "Not detected"],
-      ["Expiration date present", f.hasExpirationDate ? "Yes" : "Not detected"],
-      ["Limits present", f.hasLimits ? "Yes" : "Not detected"],
-      ["NAIC present", f.hasNaic ? "Yes" : "Not detected"],
-      ["Additional Insured indicator", f.additionalInsuredChecked ? "Yes" : "Not detected"],
-      ["Waiver of Subrogation indicator", f.waiverChecked ? "Yes" : "Not detected"],
-      ["Authorized representative", f.hasAuthorizedRep ? "Yes" : "Not detected"],
-      ["Description of Operations", f.description ? "Captured" : "Not detected"],
-    ];
-  }, [r.extracted]);
 
   const saveToHistory = () => {
     saveReport({
