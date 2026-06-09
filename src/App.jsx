@@ -37,12 +37,29 @@ import { DEFAULT_RULES } from "./utils/coiRules.js";
 const AppContext = createContext(null);
 export const useApp = () => useContext(AppContext);
 
+function hydrateSettings(saved) {
+  const merged = {
+    ...DEFAULT_RULES,
+    ...(saved || {}),
+    endorsementKeywords: {
+      ...DEFAULT_RULES.endorsementKeywords,
+      ...((saved || {}).endorsementKeywords || {}),
+    },
+  };
+  merged.endorsementKeywords.additionalInsured = (
+    merged.endorsementKeywords.additionalInsured || DEFAULT_RULES.endorsementKeywords.additionalInsured
+  ).filter((keyword) => keyword.trim().toLowerCase() !== "ai");
+  return merged;
+}
+
 export default function App() {
   const [user, setUser] = useState(() => getUser());
   const [page, setPage] = useState("dashboard");
 
   // Settings persist; default to the rule set in coiRules.js on first run.
-  const [settings, setSettings] = useState(() => getSettings() || DEFAULT_RULES);
+  // hydrateSettings also migrates older localStorage rules, especially removing
+  // the old bare "ai" keyword that caused false Additional Insured matches.
+  const [settings, setSettings] = useState(() => hydrateSettings(getSettings()));
 
   // Live copies (refreshed on changes) of stored collections.
   const [requests, setRequests] = useState(() => getRequests());
