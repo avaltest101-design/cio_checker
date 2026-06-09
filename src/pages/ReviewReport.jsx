@@ -71,7 +71,11 @@ export default function ReviewReport() {
       recommendation: r.recommendation,
       counts: r.counts,
       findings: r.findings,
+      matchSummary: r.matchSummary,
+      extractionConfidence: r.extractionConfidence,
       extracted: r.extracted,
+      analysis: r.analysis,
+      linkedRequestId: r.linkedRequestId,
       fileName: r.fileName,
     });
     refreshReports();
@@ -91,9 +95,20 @@ export default function ReviewReport() {
     lines.push(`SCORE: ${r.score}/100`);
     lines.push(`STATUS: ${r.status}`);
     lines.push(`RECOMMENDATION: ${recommendation.label}`);
+    lines.push(`PDF EXTRACTION CONFIDENCE: ${typeof r.extractionConfidence === "number" ? `${r.extractionConfidence}/100` : "Not calculated"}`);
     lines.push(
       `Findings — Critical: ${r.counts.Critical}, Moderate: ${r.counts.Moderate}, Minor: ${r.counts.Minor}, Info: ${r.counts.Info}`
     );
+    lines.push("");
+    lines.push("CLIENT REQUEST MATCH SUMMARY");
+    lines.push("-".repeat(50));
+    (r.matchSummary || []).forEach((m, i) => {
+      lines.push(`${i + 1}. [${m.status}] ${m.field}`);
+      lines.push(`   Request: ${m.requestValue}`);
+      lines.push(`   COI: ${m.coiValue}`);
+      lines.push(`   Note: ${m.note}`);
+      lines.push("");
+    });
     lines.push("");
     lines.push("FINDINGS");
     lines.push("-".repeat(50));
@@ -128,11 +143,19 @@ export default function ReviewReport() {
         counts={r.counts}
       />
 
+      <WorkflowSteps active="report" />
+
       <p className="compliance-note">
         This report reflects only whether the COI <strong>appears to match</strong> the uploaded
         request and checklist. It does not state that the COI is legally correct or that coverage
         exists.
       </p>
+
+      <div className="confidence-strip">
+        <strong>PDF extraction confidence:</strong>
+        <span>{typeof r.extractionConfidence === "number" ? `${r.extractionConfidence}%` : "Not calculated"}</span>
+        <small>Low confidence means the PDF may need visual review even if the score looks acceptable.</small>
+      </div>
 
       <div className="btn-row">
         <button className="btn btn-primary" onClick={download}>Download report</button>
@@ -140,6 +163,37 @@ export default function ReviewReport() {
           {saved ? "Saved to history ✓" : "Save to history"}
         </button>
         <button className="btn btn-ghost" onClick={() => navigate("checker")}>Check another</button>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><h3>Client Request Match Summary</h3></div>
+        <div className="table-wrap">
+          <table className="data-table match-table">
+            <thead>
+              <tr>
+                <th>Requirement</th>
+                <th>Status</th>
+                <th>Client requested</th>
+                <th>Found on COI</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(r.matchSummary || []).map((m) => (
+                <tr key={m.field}>
+                  <td><strong>{m.field}</strong></td>
+                  <td><span className={`match-pill match-${toneForMatch(m.status)}`}>{m.status}</span></td>
+                  <td>{m.requestValue}</td>
+                  <td>{m.coiValue}</td>
+                  <td>{m.note}</td>
+                </tr>
+              ))}
+              {(!r.matchSummary || r.matchSummary.length === 0) && (
+                <tr><td colSpan={5} className="empty-cell">No match summary was generated.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="two-col">
@@ -169,6 +223,32 @@ export default function ReviewReport() {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+function toneForMatch(status) {
+  if (["Matched", "Detected"].includes(status)) return "pass";
+  if (status === "Needs Review") return "review";
+  return "critical";
+}
+
+function WorkflowSteps({ active }) {
+  const steps = [
+    ["analyzer", "1", "Paste request"],
+    ["guidance", "2", "Follow instructions"],
+    ["checker", "3", "Upload completed COI"],
+    ["report", "4", "Review corrections"],
+  ];
+  const activeIndex = steps.findIndex(([key]) => key === active);
+  return (
+    <div className="workflow-steps">
+      {steps.map(([key, num, label], index) => (
+        <div key={key} className={`workflow-step ${index <= activeIndex ? "active" : ""}`}>
+          <span>{num}</span>{label}
+        </div>
+      ))}
     </div>
   );
 }
